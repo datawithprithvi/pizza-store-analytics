@@ -146,13 +146,19 @@ def load_data():
 
     pizza_df = pizza_df.copy()
 
+    # Drop any existing full_date column (e.g. already present in the CSV)
+    # before recomputing it, to avoid dtype-assignment conflicts.
+    if "full_date" in pizza_df.columns:
+        pizza_df = pizza_df.drop(columns=["full_date"])
+
     # Build a true datetime column so .dt.hour/.dt.day always work.
-    pizza_df.loc[:, "full_date"] = pd.to_datetime(
+    computed_full_date = pd.to_datetime(
         pizza_df["order_date"].astype(str).str.strip()
         + " "
         + pizza_df["order_time"].astype(str).str.strip(),
         errors="coerce"
     )
+    pizza_df["full_date"] = computed_full_date
 
     if pizza_df["full_date"].isna().all():
         raise ValueError(
