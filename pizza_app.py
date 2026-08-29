@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import pymysql as sql
 
 # ============================================================
 # PAGE CONFIG
@@ -126,46 +125,14 @@ st.markdown("""
 
 
 # ============================================================
-# DATABASE CONNECTION
+# DATA LOADING (from CSV — no database needed)
 # ============================================================
-@st.cache_resource
-def get_connection():
-    return sql.connect(
-        user="root",
-        host="localhost",
-        password="1234",
-        database="pizza_store"
-    )
+CSV_PATH = "pizza_data.csv"
 
 
 @st.cache_data
 def load_data():
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT * FROM order_Wise_details o
-        JOIN pizza_sales p
-            ON o.order_id = p.order_id
-        JOIN pizza_wise_details pw
-            ON p.pizza_id = pw.pizza_id
-        JOIN pizza_order po
-            ON o.order_id = po.order_id
-            AND p.pizza_id = po.pizza_id;
-    """)
-
-    rows = cur.fetchall()
-    cols = [i[0] for i in cur.description]
-    df = pd.DataFrame(data=rows, columns=cols)
-
-    # Same duplicate-column handling as the notebook
-    pizza_df = pd.DataFrame({})
-    for col in df.columns:
-        if col not in pizza_df.columns:
-            if type(df[col]) == pd.DataFrame:
-                pizza_df[col] = df[col].iloc[:, 0]
-            else:
-                pizza_df[col] = df[col]
+    pizza_df = pd.read_csv(CSV_PATH)
 
     # Same conversions as the notebook
     pizza_df["order_id"] = pd.to_numeric(pizza_df["order_id"], errors="coerce")
@@ -177,8 +144,6 @@ def load_data():
     pizza_df["quantity"] = pd.to_numeric(pizza_df["quantity"], errors="coerce")
     pizza_df["total_qty"] = pd.to_numeric(pizza_df["total_qty"], errors="coerce").fillna(0).astype(int)
 
-    # Create an independent copy before assigning columns to avoid
-    # pandas chained-assignment / Copy-on-Write warnings.
     pizza_df = pizza_df.copy()
 
     # Build a true datetime column so .dt.hour/.dt.day always work.
@@ -192,7 +157,7 @@ def load_data():
     if pizza_df["full_date"].isna().all():
         raise ValueError(
             "Could not parse order_date and order_time into full_date. "
-            "Check the date/time format in the MySQL tables."
+            "Check the date/time format in pizza_data.csv."
         )
 
     pizza_df["total_sale"] = pizza_df["total_qty"] * pizza_df["total_price"]
@@ -245,13 +210,16 @@ st.markdown("""
 # ============================================================
 try:
     pizza_df = load_data()
-except Exception as e:
-    st.error("Could not connect to the Pizza Store database.")
-    st.code(str(e))
+except FileNotFoundError:
+    st.error("Could not find pizza_data.csv")
     st.info(
-        "Check that MySQL is running and the database credentials in this app "
-        "match your local MySQL configuration."
+        "Make sure pizza_data.csv is in the same folder as this app and has "
+        "been pushed to your GitHub repo."
     )
+    st.stop()
+except Exception as e:
+    st.error("Could not load or process the pizza data.")
+    st.code(str(e))
     st.stop()
 
 
@@ -297,7 +265,6 @@ filtered_df = pizza_df[
     & pizza_df["min_pizza_size"].astype(str).isin(selected_sizes)
 ].copy()
 
-# Defensive conversion before any .dt accessor is used.
 filtered_df.loc[:, "full_date"] = pd.to_datetime(
     filtered_df["full_date"], errors="coerce"
 )
